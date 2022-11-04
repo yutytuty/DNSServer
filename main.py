@@ -1,4 +1,3 @@
-import struct
 import socket
 
 
@@ -29,11 +28,12 @@ def address_to_dns_address(address: str) -> bytes:
     return b
 
 
-class Header:
-    STANDARD_FLAGS = "\x01\x00"
+class Query:
+    TYPE_A = "\x00\x01"
+    IN = "\x00\x01"
 
     def __init__(self, transaction_id: bytes, flags: bytes, question_num: bytes, answer_num: bytes, authority_num: bytes,
-                 additional_num: bytes):
+                 additional_num: bytes, domain: str, query_type: bytes, class_type: bytes):
         self.transaction_id = transaction_id
         self.flags = flags
         self.question_num = question_num
@@ -41,13 +41,6 @@ class Header:
         self.authority_num = authority_num
         self.additional_num = additional_num
 
-
-class Query:
-    TYPE_A = "\x00\x01"
-    IN = "\x00\x01"
-
-    def __init__(self, headers: Header, domain: str, query_type: bytes, class_type: bytes):
-        self.headers = headers
         self.domain = domain
         self.query_type = query_type
         self.class_type = class_type
@@ -76,26 +69,16 @@ class Response:
         self.flags = flags
 
     def encode(self) -> bytes:
-        return self.query.headers.transaction_id + self.flags + \
-               self.query.headers.question_num + self.answer_num.to_bytes(2, "big") + \
-               self.query.headers.authority_num + self.query.headers.additional_num + \
+        return self.query.transaction_id + self.flags + \
+               self.query.question_num + self.answer_num.to_bytes(2, "big") + \
+               self.query.authority_num + self.query.additional_num + \
                self.query.body_bytes() + self.domain_pointer + self.resp_type + self.class_type + \
                self.TTL + self.ip_data_length.to_bytes(2, "big") + address_to_dns_address(self.address)
 
 
-def parse_header(packet: bytes) -> Header:
-    """
-    parse header
-    :param packet: the packet that the user send to the server
-    :return: header data class
-    """
-    return Header(packet[:2], packet[2:4], packet[4:6], packet[6:8], packet[8:10], packet[10:12])
-
-
-def parse_query(header: Header, packet: bytes) -> Query:
+def parse_query(packet: bytes) -> Query:
     """
     parse query
-    :param header: header object (this is ugly and I hate it)
     :param packet: the packet that the user send to the server
     :return: query data class
     """
@@ -113,7 +96,8 @@ def parse_query(header: Header, packet: bytes) -> Query:
 
         domain += "."
 
-    return Query(header, domain, query_bytes[:2], query_bytes[2:])
+    return Query(packet[:2], packet[2:4], packet[4:6], packet[6:8], packet[8:10], packet[10:12],
+                 domain, query_bytes[:2], query_bytes[2:])
 
 
 def create_response(query: Query):
@@ -140,8 +124,7 @@ def main():
     while True:
         try:
             (packet, addr) = s.recvfrom(BUFFERSIZE)
-            header = parse_header(packet)
-            q = parse_query(header, packet)
+            q = parse_query(packet)
             resp = create_response(q)
             s.sendto(resp.encode(), addr)
         except KeyboardInterrupt:
